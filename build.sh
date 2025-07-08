@@ -5,8 +5,8 @@ set -e
 
 # --- Configuration ---
 APP_NAME="shift-prompter"
-VERSION="1.0-2" # Increased version for the new build method
-ARCH="all"
+VERSION="1.0-3" # Increased version for new improvements
+ARCH=$(dpkg --print-architecture) # Use system architecture for better accuracy
 BUILD_DIR="${APP_NAME}_${VERSION}_${ARCH}"
 LIB_DIR="$BUILD_DIR/usr/lib/$APP_NAME/lib" # Directory for bundled libraries
 
@@ -15,33 +15,23 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-echo -e "${GREEN}--- Starting the .deb package build process (with bundled libraries) ---${NC}"
+echo -e "${GREEN}--- Starting the .deb package build process (v3) ---${NC}"
 
 # --- Step 1: Clean up previous builds ---
 echo -e "${YELLOW}Step 1: Cleaning up previous artifacts...${NC}"
-rm -rf "$BUILD_DIR" "${APP_NAME}"_*.deb venv_bundle
+rm -rf "$BUILD_DIR" "${APP_NAME}"_*.deb
 
 # --- Step 2: Create directory structure ---
 echo -e "${YELLOW}Step 2: Creating the package directory structure...${NC}"
 mkdir -p "$BUILD_DIR/DEBIAN"
 mkdir -p "$BUILD_DIR/usr/bin"
-mkdir -p "$BUILD_DIR/usr/lib/$APP_NAME"
-mkdir -p "$LIB_DIR"
+mkdir -p "$LIB_DIR" # This also creates /usr/lib/$APP_NAME
 mkdir -p "$BUILD_DIR/usr/share/applications"
 mkdir -p "$BUILD_DIR/usr/share/pixmaps"
 
-# --- Step 3: Download Python dependencies locally ---
-echo -e "${YELLOW}Step 3: Downloading Python dependencies (PyQt6, pynput)...${NC}"
-# We create a temporary virtual environment to download packages
-python3 -m venv venv_bundle
-source venv_bundle/bin/activate
-pip install -r requirements.txt
-deactivate
-
-# Copy the installed packages from site-packages into our library folder
-# This makes the package self-contained
-cp -r venv_bundle/lib/python*/site-packages/* "$LIB_DIR/"
-rm -rf venv_bundle # Clean up the temporary venv
+# --- Step 3: Install Python dependencies directly into the target directory ---
+echo -e "${YELLOW}Step 3: Installing Python dependencies into target directory...${NC}"
+pip install --target="$LIB_DIR" -r requirements.txt
 
 # --- Step 4: Copy application files ---
 echo -e "${YELLOW}Step 4: Copying application files...${NC}"
@@ -51,21 +41,22 @@ cp icon.png "$BUILD_DIR/usr/share/pixmaps/$APP_NAME.png"
 # --- Step 5: Create metadata and scripts ---
 echo -e "${YELLOW}Step 5: Creating DEBIAN files, .desktop entry, and launcher script...${NC}"
 
-# 5a: The 'control' file (now with fewer dependencies)
+# 5a: The 'control' file
 # IMPORTANT: Change the Maintainer field to your name and email.
-cat <<'EOF' > "$BUILD_DIR/DEBIAN/control"
-Package: shift-prompter
-Version: 1.0-2
-Architecture: all
+# NOTE: Changed Architecture to be dynamic based on the build system.
+cat <<EOF > "$BUILD_DIR/DEBIAN/control"
+Package: ${APP_NAME}
+Version: ${VERSION}
+Architecture: ${ARCH}
 Maintainer: Your Name <your.email@example.com>
 Depends: python3, xclip, xdotool, wl-clipboard, wtype
 Description: Local Prompt Manager for instant text pasting.
  Shift-Prompter is a lightweight Linux application that provides instant access
  to your predefined text snippets (prompts) via a global hotkey.
- This package bundles PyQt6 and pynput for compatibility with older systems.
+ This package bundles PyQt6 and pynput for easier installation.
 EOF
 
-# 5b: The 'postinst' script (runs after installation)
+# 5b: The 'postinst' script
 cat <<'EOF' > "$BUILD_DIR/DEBIAN/postinst"
 #!/bin/bash
 set -e
@@ -80,7 +71,7 @@ echo "--------------------------------------------------------"
 exit 0
 EOF
 
-# 5c: The launcher script (UPDATED to use bundled libs)
+# 5c: The launcher script
 cat <<EOF > "$BUILD_DIR/usr/bin/$APP_NAME"
 #!/bin/bash
 APP_LIB_PATH="/usr/lib/$APP_NAME/lib"
@@ -102,19 +93,23 @@ Categories=Utility;
 StartupNotify=false
 EOF
 
-# --- Step 6: Set correct permissions ---
-echo -e "${YELLOW}Step 6: Setting correct file permissions...${NC}"
-sudo chown -R root:root "$BUILD_DIR"
-sudo chmod 755 "$BUILD_DIR/DEBIAN/postinst"
-sudo chmod 755 "$BUILD_DIR/usr/bin/$APP_NAME"
+# --- Step 6: Set correct executable permissions ---
+echo -e "${YELLOW}Step 6: Setting executable permissions...${NC}"
+chmod 755 "$BUILD_DIR/DEBIAN/postinst"
+chmod 755 "$BUILD_DIR/usr/bin/$APP_NAME"
 
-# --- Step 7: Build the .deb package ---
+# --- Step 6.5: Clean up bytecode files to reduce package size ---
+echo -e "${YELLOW}Step 6.5: Cleaning up bytecode files...${NC}"
+find "$BUILD_DIR" -type d -name "__pycache__" -exec rm -r {} +
+find "$BUILD_DIR" -type f -name "*.pyc" -delete
+
+# --- Step 7: Build the .deb package using fakeroot ---
 echo -e "${YELLOW}Step 7: Building the final .deb package...${NC}"
-dpkg-deb --build "$BUILD_DIR"
+fakeroot dpkg-deb --build "$BUILD_DIR"
 
 # --- Step 8: Clean up ---
-echo -e "${YELLOW}Step 8: Cleaning up temporary files...${NC}"
-sudo rm -r "$BUILD_DIR"
+echo -e "${YELLOW}Step 8: Cleaning up temporary build directory...${NC}"
+rm -r "$BUILD_DIR" # No sudo needed
 
 FINAL_DEB="${APP_NAME}_${VERSION}_${ARCH}.deb"
 echo -e "${GREEN}--- SUCCESS! ---${NC}"
