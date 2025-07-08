@@ -22,7 +22,8 @@ from PyQt6.QtWidgets import (
     QDialogButtonBox, QFormLayout, QListWidgetItem
 )
 # CHANGED: Import QObject and pyqtSignal for thread-safe communication
-from PyQt6.QtCore import Qt, QEvent, QObject, pyqtSignal
+from PyQt6.QtCore import Qt, QEvent, QObject, pyqtSignal, QPoint, QRect, QTimer
+from PyQt6.QtGui import QCursor, QGuiApplication
 
 # --- Application Configuration ---
 CONFIG_DIR = Path.home() / ".config" / "Shift-Prompter"
@@ -134,7 +135,7 @@ class PromptWindow(QWidget):
         
         index = self.list_widget.row(selected_item)
         prompt = self.prompts[index]
-        
+
         dialog = PromptDialog(self, name=prompt["name"], content=prompt["content"])
         if dialog.exec():
             name, content = dialog.get_data()
@@ -172,26 +173,21 @@ class PromptWindow(QWidget):
             if self.list_widget.currentItem():
                 self.item_selected(self.list_widget.currentItem())
 
-# CHANGED: The class now inherits from QObject to support signals.
+# --- Application Core ---
 class ShiftPrompterApp(QObject):
     """The main application class, managing logic and keyboard listening."""
-    # NEW: Define a signal that will be emitted from the background thread.
     toggle_window_signal = pyqtSignal()
 
     def __init__(self):
         super().__init__()
         self.last_shift_press_time = 0
         self.prompt_window = PromptWindow(self)
-        
-        # NEW: Connect the signal to the slot (the function that will run in the GUI thread).
         self.toggle_window_signal.connect(self.toggle_window)
-        
         signal.signal(signal.SIGINT, self.handle_exit)
         signal.signal(signal.SIGTERM, self.handle_exit)
 
     def handle_exit(self, *args):
         print("\nClosing Shift-Prompter...")
-        # Use the instance method to quit safely
         QApplication.instance().quit()
 
     def on_shift_press(self, key):
@@ -201,20 +197,38 @@ class ShiftPrompterApp(QObject):
             self.last_shift_press_time = current_time
 
             if time_diff < DOUBLE_TAP_THRESHOLD_S:
-                # CHANGED: Instead of calling the function directly, emit the signal.
-                # This is thread-safe.
                 self.toggle_window_signal.emit()
 
     def toggle_window(self):
-        # This function is now a "slot" and will always run safely in the main GUI thread.
         if self.prompt_window.isVisible():
             self.prompt_window.hide()
         else:
             self.prompt_window.refresh_list()
+            self.position_window_near_cursor()
             self.prompt_window.show()
             self.prompt_window.activateWindow()
             self.prompt_window.raise_()
             self.prompt_window.list_widget.setFocus()
+
+    def position_window_near_cursor(self):
+        screen = QGuiApplication.screenAt(QCursor.pos())
+        if not screen:
+            return
+
+        screen_rect: QRect = screen.availableGeometry()
+        cursor_pos: QPoint = QCursor.pos()
+
+        self.prompt_window.adjustSize()
+        win_size = self.prompt_window.size()
+
+        margin = 10
+        x = min(cursor_pos.x(), screen_rect.right() - win_size.width() - margin)
+        y = min(cursor_pos.y(), screen_rect.bottom() - win_size.height() - margin)
+
+        x = max(x, screen_rect.left() + margin)
+        y = max(y, screen_rect.top() + margin)
+
+        self.prompt_window.move(x, y)
 
     def inject_text(self, text: str):
         try:
@@ -239,17 +253,14 @@ class ShiftPrompterApp(QObject):
         print("🚀 Shift-Prompter is active.")
         print("👂 Double-press Shift to open the window.")
         print("ℹ️ Press Ctrl+C in the terminal to exit.")
-        
+
         listener = keyboard.Listener(on_press=self.on_shift_press)
         listener.start()
-        
-        # The main event loop is started here by QApplication.
-        # It will also process the signals we emit.
-        status = QApplication.instance().exec()
-        
-        listener.stop()
-        sys.exit(status)
 
+        app = QApplication(sys.argv)
+        app.aboutToQuit.connect(lambda: listener.stop())
+        self.prompt_window.hide()
+        sys.exit(app.exec())
 if __name__ == "__main__":
     q_app = QApplication(sys.argv)
     # The application logic is now in a QObject
