@@ -21,7 +21,6 @@ from PyQt6.QtWidgets import (
     QMessageBox, QLineEdit, QTextEdit, QDialog,
     QDialogButtonBox, QFormLayout, QListWidgetItem
 )
-# CHANGED: Import QObject and pyqtSignal for thread-safe communication
 from PyQt6.QtCore import Qt, QEvent, QObject, pyqtSignal, QPoint, QRect, QTimer
 from PyQt6.QtGui import QCursor, QGuiApplication
 
@@ -63,11 +62,28 @@ class PromptWindow(QWidget):
 
     def init_ui(self):
         self.setWindowTitle("Shift-Prompter")
+        # --- ZMIANY ZNAJDUJĄ SIĘ TUTAJ ---
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        
+        # 1. Usunięcie atrybutu przezroczystości
+        # self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground) 
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
 
+        # 2. Dodanie stylu tła i wyglądu za pomocą arkusza stylów
+        # Ustawiamy nazwę obiektu, aby styl dotyczył tylko tego konkretnego okna, a nie jego dzieci (np. przycisków)
+        self.setObjectName("promptWindow")
+        self.setStyleSheet("""
+            #promptWindow {
+                background-color: #495e80; /* Kolor "AliceBlue", bardzo jasny niebieski */
+                border: 1px solid #000000;   /* Jasna stalowa ramka */
+                border-radius: 8px;          /* Zaokrąglone rogi */
+            }
+        """)
+        # --- KONIEC ZMIAN ---
+
         layout = QVBoxLayout()
+        # Dodajemy marginesy, aby zawartość nie przylegała do krawędzi okna
+        layout.setContentsMargins(10, 10, 10, 10) 
         self.list_widget = QListWidget()
         self.list_widget.itemDoubleClicked.connect(self.item_selected)
 
