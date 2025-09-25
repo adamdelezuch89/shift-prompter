@@ -39,10 +39,10 @@ The process is fully automated. Just run the following commands in the project's
 
 ```bash
 # First, make the script executable
-chmod +x build_deb.sh
+chmod +x build.sh
 
 # Then, run it. It will ask for sudo password to set file permissions.
-./build_deb.sh
+./build.sh
 ```
 The script will create the final `.deb` package in the project directory.
 
